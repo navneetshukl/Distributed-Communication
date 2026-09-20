@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  registry:
+    build:
+      context: .
+      dockerfile: registry/Dockerfile
+    ports:
+      - "8080:8080"
+    networks:
+      - chat-net
+    restart: unless-stopped
+
+  node-a:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    environment:
+      - NODE_ID=node-a
+      - NODE_ADDR=http://node-a:3000
+      - REGISTRY_URL=http://registry:8080
+      - PORT=3000
+    ports:
+      - "3001:3000"
+    networks:
+      - chat-net
+    depends_on:
+      - registry
+    restart: unless-stopped
+
+  node-b:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    environment:
+      - NODE_ID=node-b
+      - NODE_ADDR=http://node-b:3000
+      - REGISTRY_URL=http://registry:8080
+      - PORT=3000
+    ports:
+      - "3002:3000"
+    networks:
+      - chat-net
+    depends_on:
+      - registry
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    ports:
+      - "8081:80"
+    networks:
+      - chat-net
+    depends_on:
+      - node-a
+      - node-b
+
+networks:
+  chat-net:
+    driver: bridge
