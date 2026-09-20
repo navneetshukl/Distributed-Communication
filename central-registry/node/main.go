@@ -82,25 +82,25 @@ func (h *Hub) SendToUser(userID string, msg shared.WSMessage) bool {
 // clientAddr: external address for browser WebSocket connections.
 // httpClient: HTTP client for making requests to the registry.
 type RegistryClient struct {
-	registryURL string
-	nodeID      string
-	nodeAddr    string
-	clientAddr  string
+	RegistryURL string
+	NodeID      string
+	NodeAddr    string
+	ClientAddr  string
 	httpClient  *http.Client
 }
 
 // NewRegistryClient creates a new RegistryClient with the provided configuration.
 // u: registry base URL, id: node ID, a: internal node address, ca: client-facing address.
 func NewRegistryClient(u, id, a, ca string) *RegistryClient {
-	return &RegistryClient{registryURL: u, nodeID: id, nodeAddr: a, clientAddr: ca, httpClient: &http.Client{}}
+	return &RegistryClient{RegistryURL: u, NodeID: id, NodeAddr: a, ClientAddr: ca, httpClient: &http.Client{}}
 }
 
 // RegisterNode registers this chat node with the central registry.
 // Sends node_id, internal address, and client address to the registry.
 // Called once at node startup.
 func (c *RegistryClient) RegisterNode() error {
-	body, _ := json.Marshal(map[string]string{"node_id": c.nodeID, "address": c.nodeAddr, "client_address": c.clientAddr})
-	resp, err := c.httpClient.Post(c.registryURL+"/nodes/register", "application/json", bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]string{"node_id": c.NodeID, "address": c.NodeAddr, "client_address": c.ClientAddr})
+	resp, err := c.httpClient.Post(c.RegistryURL+"/nodes/register", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -112,8 +112,8 @@ func (c *RegistryClient) RegisterNode() error {
 // Called when a user's WebSocket connection is established.
 // Sends user_id and this node's node_id to the registry's /presence endpoint.
 func (c *RegistryClient) SetUserPresence(uid string) error {
-	body, _ := json.Marshal(map[string]string{"user_id": uid, "node_id": c.nodeID})
-	resp, err := c.httpClient.Post(c.registryURL+"/presence", "application/json", bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]string{"user_id": uid, "node_id": c.NodeID})
+	resp, err := c.httpClient.Post(c.RegistryURL+"/presence", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -125,8 +125,8 @@ func (c *RegistryClient) SetUserPresence(uid string) error {
 // Called when a user's WebSocket connection closes.
 // Sends DELETE request to the registry's /presence/:user_id endpoint.
 func (c *RegistryClient) RemoveUserPresence(uid string) error {
-	body, _ := json.Marshal(map[string]string{"user_id": uid, "node_id": c.nodeID})
-	req, _ := http.NewRequest(http.MethodDelete, c.registryURL+"/presence/"+uid, bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]string{"user_id": uid, "node_id": c.NodeID})
+	req, _ := http.NewRequest(http.MethodDelete, c.RegistryURL+"/presence/"+uid, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -141,7 +141,7 @@ func (c *RegistryClient) RemoveUserPresence(uid string) error {
 // Returns (empty NodeInfo, nil) if user not found (404).
 // Returns error if the registry request fails.
 func (c *RegistryClient) LookupUser(uid string) (shared.NodeInfo, error) {
-	resp, err := c.httpClient.Get(c.registryURL + "/lookup/" + uid)
+	resp, err := c.httpClient.Get(c.RegistryURL + "/lookup/" + uid)
 	if err != nil {
 		return shared.NodeInfo{}, err
 	}
@@ -180,18 +180,27 @@ func (r *Router) SetHub(h *Hub) { r.hub = h }
 // If recipient is on this node (hub.SendToUser succeeds), delivers locally and sends ack to sender.
 // Otherwise, looks up the recipient's node via the registry and forwards the message there.
 // If user not found in registry, sends error to sender.
+// Avoids forwarding to self (which would create a loop).
 func (r *Router) RouteMessage(msg shared.WSMessage) {
 	if msg.To == "" {
 		log.Println("missing to")
 		return
 	}
+	// Try local delivery first
 	if r.hub != nil && r.hub.SendToUser(msg.To, msg) {
 		r.hub.SendToUser(msg.From, shared.WSMessage{Type: "ack", MsgID: msg.MsgID, To: msg.From})
 		return
 	}
+	// Look up recipient's node
 	ni, err := r.registry.LookupUser(msg.To)
 	if err != nil || ni.Address == "" {
 		r.sendError(msg.From, "User not found: "+msg.To)
+		return
+	}
+	// Avoid forwarding to self (would create infinite loop if user not actually connected)
+	if ni.Address == r.registry.NodeAddr {
+		log.Printf("User %s assigned to this node (%s) but not connected locally", msg.To, r.registry.NodeID)
+		r.sendError(msg.From, "User not connected: "+msg.To)
 		return
 	}
 	r.forward(ni.Address, msg)
@@ -199,7 +208,7 @@ func (r *Router) RouteMessage(msg shared.WSMessage) {
 
 // forward sends a message to another node via HTTP POST to /internal/forward.
 // Converts WSMessage to ForwardMessage format for node-to-node transport.
-// On success, sends ack to the original sender.
+// Checks response for actual delivery status. Only sends ack if message was delivered.
 // On failure, logs error and sends error to sender.
 func (r *Router) forward(addr string, msg shared.WSMessage) {
 	fwd := shared.ForwardMessage{MsgID: msg.MsgID, FromUser: msg.From, ToUser: msg.To, Content: msg.Content, Timestamp: msg.Timestamp}
@@ -210,7 +219,15 @@ func (r *Router) forward(addr string, msg shared.WSMessage) {
 		r.sendError(msg.From, "fail")
 		return
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
+	var result struct {
+		Delivered bool `json:"delivered"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || !result.Delivered {
+		log.Printf("fwd not delivered to %s: %v", addr, err)
+		r.sendError(msg.From, "User not connected on target node")
+		return
+	}
 	r.sendAck(msg.From, msg.MsgID)
 }
 
@@ -232,11 +249,12 @@ func (r *Router) sendAck(uid, mid string) {
 
 // DeliverLocal delivers a message to a local user.
 // Called by the HTTP handler when another node forwards a message to this node.
-// Simply passes the message to the hub for delivery to the recipient's WebSocket.
-func (r *Router) DeliverLocal(msg shared.WSMessage) {
+// Returns true if the message was queued for delivery, false if user not connected.
+func (r *Router) DeliverLocal(msg shared.WSMessage) bool {
 	if r.hub != nil {
-		r.hub.SendToUser(msg.To, msg)
+		return r.hub.SendToUser(msg.To, msg)
 	}
+	return false
 }
 
 // upgrader configures WebSocket connection upgrade.
@@ -366,14 +384,15 @@ func (h *HTTPHandler) RegisterRoutes(mux *http.ServeMux) {
 
 // handleForward handles POST /internal/forward requests from other nodes.
 // Decodes a ForwardMessage, converts it to a WSMessage, and delivers it locally via the router.
-// Returns JSON response indicating delivery status.
+// Returns JSON response indicating delivery status (true only if user is connected on this node).
 func (h *HTTPHandler) handleForward(w http.ResponseWriter, r *http.Request) {
 	var msg shared.ForwardMessage
 	if json.NewDecoder(r.Body).Decode(&msg) != nil {
 		http.Error(w, "bad json", 400)
 		return
 	}
-	h.router.DeliverLocal(shared.WSMessage{
+	// Deliver locally and check if user was actually connected
+	delivered := h.router.DeliverLocal(shared.WSMessage{
 		Type:      "chat",
 		From:      msg.FromUser,
 		To:        msg.ToUser,
@@ -381,7 +400,7 @@ func (h *HTTPHandler) handleForward(w http.ResponseWriter, r *http.Request) {
 		MsgID:     msg.MsgID,
 		Timestamp: msg.Timestamp,
 	})
-	json.NewEncoder(w).Encode(map[string]bool{"delivered": true})
+	json.NewEncoder(w).Encode(map[string]bool{"delivered": delivered})
 }
 
 // getEnv retrieves an environment variable or returns a default value.

@@ -152,7 +152,7 @@ func main() {
 	// Called by clients before opening WebSocket to get assigned node.
 	// Uses round-robin across registered nodes.
 	// Returns {address (client_address), node_id, internal_address}.
-	// If user already assigned, returns same node (sticky assignment).
+	// Does NOT register user presence - that happens when WebSocket connects via /presence.
 	http.HandleFunc("/assign", func(w http.ResponseWriter, r *http.Request) {
 		userID := r.URL.Query().Get("user_id")
 		mu.Lock()
@@ -161,7 +161,7 @@ func main() {
 			http.Error(w, "no nodes available", 503)
 			return
 		}
-		// If user already assigned, return same node
+		// If user already has active presence, return same node (sticky assignment)
 		if nodeID, ok := userNodes[userID]; ok {
 			internalAddr := nodes[nodeID]
 			clientAddr := clientAddrs[nodeID]
@@ -170,7 +170,7 @@ func main() {
 		}
 		nodeID := nodeList[rrIndex%len(nodeList)]
 		rrIndex++
-		userNodes[userID] = nodeID
+		// NOTE: Do NOT add to userNodes here - wait for WebSocket connection via /presence
 		clientAddr := clientAddrs[nodeID]
 		internalAddr := nodes[nodeID]
 		json.NewEncoder(w).Encode(map[string]string{"address": clientAddr, "node_id": nodeID, "internal_address": internalAddr})
