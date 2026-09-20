@@ -318,37 +318,23 @@ central-registry/
 ├── shared/
 │   └── types.go           # Shared structs & constants
 ├── registry/
-│   ├── main.go            # Registry server entry + CORS middleware
-│   ├── server.go          # HTTP handlers
-│   └── store.go           # In-memory user→node map
+│   └── main.go            # All-in-one: in-memory store + HTTP handlers + server + CORS
 ├── node/
-│   ├── main.go            # Node entry point + CORS middleware
-│   ├── hub.go             # WebSocket hub (clients)
-│   ├── registry_client.go # Talks to registry
-│   ├── router.go          # Message routing logic
-│   ├── ws_handler.go      # WebSocket upgrader + pumps
-│   └── http_handler.go    # Internal HTTP (receive forwards)
+│   └── main.go            # All-in-one: Hub + RegistryClient + Router + WSHandler + HTTPHandler + CORS
 ├── client/
 │   ├── index.html         # Simple chat UI
 │   └── app.js             # WebSocket client logic
 ├── docker-compose.yml     # Multi-container orchestration
-└── README.md
+└── APPROACH.md            # This document
 ```
 
 ---
 
-## Implementation Order (Piece by Piece)
+## Implementation Order (Actual - Monolithic per Service)
 
 1. **shared/types.go** - Common data structures
-2. **registry/store.go** - In-memory user→node registry
-3. **registry/server.go** - HTTP handlers for registry API
-4. **registry/main.go** - Registry server startup
-5. **node/registry_client.go** - HTTP client for registry
-6. **node/hub.go** - WebSocket client management
-7. **node/ws_handler.go** - WebSocket connection handling
-8. **node/router.go** - Message routing to other nodes
-9. **node/http_handler.go** - Receive forwarded messages
-10. **node/main.go** - Wire everything together
-11. **client/index.html** - Simple chat UI
-12. **client/app.js** - Client WebSocket logic
-13. **docker-compose.yml** - Run all containers locally
+2. **registry/main.go** - Complete registry: store, handlers, server, CORS
+3. **node/main.go** - Complete node: hub, registry client, router, WS handler, HTTP handler, CORS
+4. **client/index.html** - Simple chat UI
+5. **client/app.js** - Client WebSocket logic
+6. **docker-compose.yml** - Run all containers locally
