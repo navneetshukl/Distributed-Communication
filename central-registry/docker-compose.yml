@@ -49,8 +49,8 @@ services:
 
   client:
     build:
-      context: .
-      dockerfile: client/Dockerfile
+      context: ./client
+      dockerfile: Dockerfile
     ports:
       - "8081:80"
     networks:

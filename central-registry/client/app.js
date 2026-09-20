@@ -4,10 +4,12 @@ class ChatClient {
         this.ws = null;
         this.username = '';
         this.currentRecipient = null;
-        this.users = new Map();
+        this.users = new Map(); // userId -> userInfo (node_id, client_address, etc.)
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.msgId = 0;
+        this.userRefreshInterval = null;
+        this.pendingMessages = new Map(); // msgId -> message content for optimistic UI
 
         this.initElements();
         this.bindEvents();
@@ -43,7 +45,8 @@ class ChatClient {
             this.refreshUsersBtn.addEventListener('click', () => this.fetchUsers());
         }
     }
-async connect() {
+
+    async connect() {
         this.username = this.usernameInput.value.trim();
 
         if (!this.username) {
@@ -131,12 +134,22 @@ async connect() {
             }
             const data = await response.json();
             if (data.users) {
+                // Get current online users from registry
+                const onlineUsers = new Set();
                 Object.keys(data.users).forEach(userId => {
                     if (userId !== this.username) {
+                        onlineUsers.add(userId);
                         const userInfo = data.users[userId];
                         this.updateUserInList(userId, userInfo);
                     }
                 });
+
+                // Remove users who are no longer online
+                for (const userId of this.users.keys()) {
+                    if (!onlineUsers.has(userId)) {
+                        this.removeUserFromList(userId);
+                    }
+                }
             }
         } catch (err) {
             console.error('Failed to fetch users:', err);
@@ -144,8 +157,7 @@ async connect() {
     }
 
     updateUserInList(userId, userInfo) {
-        if (this.users.has(userId)) return;
-
+        // Update stored user info
         this.users.set(userId, userInfo);
 
         let nodeDisplay = '';
@@ -158,19 +170,46 @@ async connect() {
             `;
         }
 
-        const item = document.createElement('div');
-        item.className = 'user-item';
-        item.dataset.user = userId;
-        item.innerHTML = `
-            <div class="user-avatar">${userId.charAt(0).toUpperCase()}</div>
-            <div class="user-details">
+        // Check if user item already exists
+        let item = this.userList.querySelector(`.user-item[data-user="${userId}"]`);
+        if (item) {
+            // Update existing item
+            item.querySelector('.user-details').innerHTML = `
                 <div class="user-name">${userId}</div>
                 <div class="user-status">Online</div>
                 ${nodeDisplay}
-            </div>
-        `;
-        item.addEventListener('click', () => this.selectUser(userId));
-        this.userList.appendChild(item);
+            `;
+        } else {
+            // Create new item
+            item = document.createElement('div');
+            item.className = 'user-item';
+            item.dataset.user = userId;
+            item.innerHTML = `
+                <div class="user-avatar">${userId.charAt(0).toUpperCase()}</div>
+                <div class="user-details">
+                    <div class="user-name">${userId}</div>
+                    <div class="user-status">Online</div>
+                    ${nodeDisplay}
+                </div>
+            `;
+            item.addEventListener('click', () => this.selectUser(userId));
+            this.userList.appendChild(item);
+        }
+    }
+
+    removeUserFromList(userId) {
+        this.users.delete(userId);
+        const item = this.userList.querySelector(`.user-item[data-user="${userId}"]`);
+        if (item) {
+            item.remove();
+        }
+        // If we were chatting with this user, clear the chat
+        if (this.currentRecipient === userId) {
+            this.currentRecipient = null;
+            this.chatHeader.textContent = 'Select a user to chat';
+            this.enableInput(false);
+            this.messages.innerHTML = '';
+        }
     }
 
     onMessage(event) {
@@ -188,7 +227,8 @@ async connect() {
                 this.displayMessage(msg);
                 break;
             case 'ack':
-                console.log('Message acknowledged:', msg.msg_id);
+                // Message acknowledged by server - remove from pending and confirm
+                this.onMessageAcknowledged(msg.msg_id);
                 break;
             case 'error':
                 this.displayError(msg.error);
@@ -202,13 +242,16 @@ async connect() {
         const isSent = msg.from === this.username;
         const isSystem = msg.from === 'system';
 
+        // If message from another user not in list, add them
         if (msg.from !== this.username && msg.from !== this.currentRecipient) {
             this.updateUserInList(msg.from, null);
         }
 
+        // Display message if it's for the current conversation
         if (this.currentRecipient === msg.from || (isSent && this.currentRecipient === msg.to)) {
             this.addMessageToChat(msg, isSent, isSystem);
-        } else {
+        } else if (!isSent) {
+            // Notification for message from another user (could add badge later)
             this.updateUserInList(msg.from, null);
         }
     }
@@ -221,6 +264,10 @@ async connect() {
         } else {
             div.className = `message ${isSent ? 'sent' : 'received'}`;
             div.textContent = msg.content;
+            // Store msg_id for potential acknowledgment handling
+            if (msg.msg_id) {
+                div.dataset.msgId = msg.msg_id;
+            }
         }
         this.messages.appendChild(div);
         this.messages.scrollTop = this.messages.scrollHeight;
@@ -238,17 +285,36 @@ async connect() {
         const content = this.messageInput.value.trim();
         if (!content || !this.currentRecipient) return;
 
+        const msgId = `msg_${++this.msgId}_${Date.now()}`;
         const msg = {
             type: 'chat',
             to: this.currentRecipient,
             content: content,
-            msg_id: `msg_${++this.msgId}_${Date.now()}`
+            msg_id: msgId
         };
 
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify(msg));
+            // Optimistic UI: display message immediately before server confirmation
+            const optimisticMsg = {
+                ...msg,
+                from: this.username,
+                timestamp: Date.now()
+            };
+            this.addMessageToChat(optimisticMsg, true);
             this.messageInput.value = '';
+
+            // Store for potential acknowledgment handling
+            this.pendingMessages.set(msgId, optimisticMsg);
+
+            this.ws.send(JSON.stringify(msg));
         }
+    }
+
+    onMessageAcknowledged(msgId) {
+        // Message was acknowledged by server
+        // Could add visual confirmation (checkmark, etc.) here
+        this.pendingMessages.delete(msgId);
+        console.log('Message acknowledged:', msgId);
     }
 
     selectUser(userId) {

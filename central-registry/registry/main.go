@@ -41,7 +41,10 @@ var (
 )
 
 func main() {
-	// Register node
+	// POST /nodes/register
+	// Registers a chat node with the registry.
+	// Request: {node_id, address (internal), client_address (external)}
+	// Stores node info for routing and adds to round-robin list for assignment.
 	http.HandleFunc("/nodes/register", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			NodeID      string `json:"node_id"`
@@ -59,7 +62,10 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 	})
 
-	// User connects to a node (called by node when WebSocket connects)
+	// POST /presence
+	// Called by a node when a user's WebSocket connects.
+	// Registers user_id -> node_id mapping so messages can be routed.
+	// Validates that the node_id is a registered node.
 	http.HandleFunc("/presence", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			UserID string `json:"user_id"`
@@ -76,7 +82,9 @@ func main() {
 		mu.Unlock()
 	})
 
-	// Lookup which node a user is on (returns full NodeInfo for node-to-node forwarding)
+	// GET /lookup/:user_id
+	// Returns the node info (node_id, internal address, client address) for a user.
+	// Used by nodes to find where a recipient user is connected for cross-node forwarding.
 	http.HandleFunc("/lookup/", func(w http.ResponseWriter, r *http.Request) {
 		userID := r.URL.Path[len("/lookup/"):]
 		mu.RLock()
@@ -97,7 +105,9 @@ func main() {
 		}
 	})
 
-	// List all registered nodes
+	// GET /nodes/list
+	// Returns list of all registered node IDs.
+	// Used for health checks and debugging.
 	http.HandleFunc("/nodes/list", func(w http.ResponseWriter, r *http.Request) {
 		mu.RLock()
 		list := make([]string, len(nodeList))
@@ -106,7 +116,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"nodes": list})
 	})
 
-	// List all online users (for client user discovery)
+	// GET /users
+	// Returns all online users with their full node info.
+	// Used by clients for user discovery (shows who's online and their node addresses).
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 		mu.RLock()
 		users := make(map[string]interface{}, len(userNodes))
@@ -121,7 +133,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]interface{}{"users": users})
 	})
 
-	// Remove user presence (called by node when WebSocket disconnects)
+	// DELETE /presence/:user_id
+	// Called by a node when a user's WebSocket disconnects.
+	// Removes the user_id -> node_id mapping so user no longer appears in /users or /lookup.
 	http.HandleFunc("/presence/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			http.Error(w, "method not allowed", 405)
@@ -134,7 +148,11 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 	})
 
-	// Round-robin node assignment for a new user (called by client before WebSocket connect)
+	// GET /assign?user_id=...
+	// Called by clients before opening WebSocket to get assigned node.
+	// Uses round-robin across registered nodes.
+	// Returns {address (client_address), node_id, internal_address}.
+	// If user already assigned, returns same node (sticky assignment).
 	http.HandleFunc("/assign", func(w http.ResponseWriter, r *http.Request) {
 		userID := r.URL.Query().Get("user_id")
 		mu.Lock()
@@ -158,6 +176,8 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"address": clientAddr, "node_id": nodeID, "internal_address": internalAddr})
 	})
 
+	// GET /health
+	// Health check endpoint for container orchestration.
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
