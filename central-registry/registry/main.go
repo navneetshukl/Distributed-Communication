@@ -109,9 +109,13 @@ func main() {
 	// List all online users (for client user discovery)
 	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 		mu.RLock()
-		users := make(map[string]string, len(userNodes))
+		users := make(map[string]interface{}, len(userNodes))
 		for uid, nid := range userNodes {
-			users[uid] = nid
+			users[uid] = map[string]string{
+				"node_id":         nid,
+				"internal_address": nodes[nid],
+				"client_address":  clientAddrs[nid],
+			}
 		}
 		mu.RUnlock()
 		json.NewEncoder(w).Encode(map[string]interface{}{"users": users})

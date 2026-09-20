@@ -133,13 +133,44 @@ async connect() {
             if (data.users) {
                 Object.keys(data.users).forEach(userId => {
                     if (userId !== this.username) {
-                        this.updateUserInList(userId, false);
+                        const userInfo = data.users[userId];
+                        this.updateUserInList(userId, userInfo);
                     }
                 });
             }
         } catch (err) {
             console.error('Failed to fetch users:', err);
         }
+    }
+
+    updateUserInList(userId, userInfo) {
+        if (this.users.has(userId)) return;
+
+        this.users.set(userId, userInfo);
+
+        let nodeDisplay = '';
+        if (userInfo && userInfo.node_id) {
+            nodeDisplay = `
+                <div class="node-info">
+                    <span class="node-badge">${userInfo.node_id}</span>
+                    <span class="node-address">${userInfo.client_address}</span>
+                </div>
+            `;
+        }
+
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.dataset.user = userId;
+        item.innerHTML = `
+            <div class="user-avatar">${userId.charAt(0).toUpperCase()}</div>
+            <div class="user-details">
+                <div class="user-name">${userId}</div>
+                <div class="user-status">Online</div>
+                ${nodeDisplay}
+            </div>
+        `;
+        item.addEventListener('click', () => this.selectUser(userId));
+        this.userList.appendChild(item);
     }
 
     onMessage(event) {
@@ -172,13 +203,13 @@ async connect() {
         const isSystem = msg.from === 'system';
 
         if (msg.from !== this.username && msg.from !== this.currentRecipient) {
-            this.updateUserInList(msg.from, true);
+            this.updateUserInList(msg.from, null);
         }
 
         if (this.currentRecipient === msg.from || (isSent && this.currentRecipient === msg.to)) {
             this.addMessageToChat(msg, isSent, isSystem);
         } else {
-            this.updateUserInList(msg.from, true);
+            this.updateUserInList(msg.from, null);
         }
     }
 
@@ -229,25 +260,6 @@ async connect() {
         document.querySelectorAll('.user-item').forEach(item => {
             item.classList.toggle('active', item.dataset.user === userId);
         });
-    }
-
-    updateUserInList(userId, hasUnread = false) {
-        if (this.users.has(userId)) return;
-
-        this.users.set(userId, { hasUnread });
-
-        const item = document.createElement('div');
-        item.className = 'user-item';
-        item.dataset.user = userId;
-        item.innerHTML = `
-            <div class="user-avatar">${userId.charAt(0).toUpperCase()}</div>
-            <div>
-                <div class="user-name">${userId}</div>
-                <div class="user-status">Online</div>
-            </div>
-        `;
-        item.addEventListener('click', () => this.selectUser(userId));
-        this.userList.appendChild(item);
     }
 
     setConnectionStatus(connected) {
