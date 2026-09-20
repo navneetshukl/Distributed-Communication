@@ -2,8 +2,9 @@ package shared
 
 // NodeInfo represents a chat node in the registry
 type NodeInfo struct {
-	NodeID  string `json:"node_id"`
-	Address string `json:"address"` // e.g., "http://node-a:3000"
+	NodeID        string `json:"node_id"`
+	Address       string `json:"address"`       // internal Docker address for node-to-node
+	ClientAddress string `json:"client_address"` // external address for browser clients
 }
 
 // ForwardMessage - Node-to-node message delivery

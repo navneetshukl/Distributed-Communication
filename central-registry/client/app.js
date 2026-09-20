@@ -18,6 +18,7 @@ class ChatClient {
         this.chatContainer = document.getElementById('chat-container');
         this.usernameInput = document.getElementById('username-input');
         this.nodeUrlInput = document.getElementById('node-url-input');
+        this.registryUrl = 'http://localhost:8080';
         this.loginBtn = document.getElementById('login-btn');
         this.userList = document.getElementById('user-list');
         this.chatHeader = document.getElementById('chat-header');
@@ -26,6 +27,7 @@ class ChatClient {
         this.sendBtn = document.getElementById('send-btn');
         this.statusDot = document.getElementById('status-dot');
         this.statusText = document.getElementById('status-text');
+        this.refreshUsersBtn = document.getElementById('refresh-users-btn');
     }
 
     bindEvents() {
@@ -37,30 +39,44 @@ class ChatClient {
         this.messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') this.sendMessage();
         });
+        if (this.refreshUsersBtn) {
+            this.refreshUsersBtn.addEventListener('click', () => this.fetchUsers());
+        }
     }
-connect() {
+async connect() {
         this.username = this.usernameInput.value.trim();
-        const nodeUrl = this.nodeUrlInput.value.trim();
 
         if (!this.username) {
             alert('Please enter a username');
             return;
         }
-        if (!nodeUrl) {
-            alert('Please enter node URL');
-            return;
-        }
 
         this.loginBtn.disabled = true;
-        this.loginBtn.textContent = 'Connecting...';
+        this.loginBtn.textContent = 'Finding node...';
 
-        const wsUrl = `${nodeUrl}/ws?user=${encodeURIComponent(this.username)}`;
-        this.ws = new WebSocket(wsUrl);
+        // Get node assignment from registry (round-robin)
+        try {
+            const response = await fetch(`${this.registryUrl}/assign?user_id=${encodeURIComponent(this.username)}`);
+            if (!response.ok) {
+                throw new Error('No nodes available');
+            }
+            const data = await response.json();
+            const nodeUrl = data.address.replace('http://', 'ws://').replace('https://', 'wss://');
+            
+            this.loginBtn.textContent = 'Connecting...';
+            const wsUrl = `${nodeUrl}/ws?user=${encodeURIComponent(this.username)}`;
+            this.ws = new WebSocket(wsUrl);
 
-        this.ws.onopen = () => this.onOpen();
-        this.ws.onmessage = (e) => this.onMessage(e);
-        this.ws.onclose = () => this.onClose();
-        this.ws.onerror = (e) => this.onError(e);
+            this.ws.onopen = () => this.onOpen();
+            this.ws.onmessage = (e) => this.onMessage(e);
+            this.ws.onclose = () => this.onClose();
+            this.ws.onerror = (e) => this.onError(e);
+        } catch (err) {
+            console.error('Failed to assign node:', err);
+            alert('Could not connect to chat service: ' + err.message);
+            this.loginBtn.disabled = false;
+            this.loginBtn.textContent = 'Connect';
+        }
     }
 
     onOpen() {
@@ -71,12 +87,31 @@ connect() {
         this.messageInput.disabled = false;
         this.sendBtn.disabled = false;
         this.reconnectAttempts = 0;
+        // Fetch online users after connecting
+        this.fetchUsers();
+        // Periodically refresh user list
+        this.startUserRefreshInterval();
+    }
+
+    startUserRefreshInterval() {
+        if (this.userRefreshInterval) {
+            clearInterval(this.userRefreshInterval);
+        }
+        this.userRefreshInterval = setInterval(() => this.fetchUsers(), 30000); // Every 30 seconds
+    }
+
+    stopUserRefreshInterval() {
+        if (this.userRefreshInterval) {
+            clearInterval(this.userRefreshInterval);
+            this.userRefreshInterval = null;
+        }
     }
 
     onClose() {
         console.log('Disconnected from server');
         this.setConnectionStatus(false);
         this.enableInput(false);
+        this.stopUserRefreshInterval();
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
@@ -86,6 +121,25 @@ connect() {
 
     onError(error) {
         console.error('WebSocket error:', error);
+    }
+
+    async fetchUsers() {
+        try {
+            const response = await fetch(`${this.registryUrl}/users`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch users');
+            }
+            const data = await response.json();
+            if (data.users) {
+                Object.keys(data.users).forEach(userId => {
+                    if (userId !== this.username) {
+                        this.updateUserInList(userId, false);
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Failed to fetch users:', err);
+        }
     }
 
     onMessage(event) {

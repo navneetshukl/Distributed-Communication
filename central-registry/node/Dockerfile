@@ -1,8 +1,11 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
+COPY go.mod go.sum ./
+
+RUN go mod download
 COPY shared/ ./shared/
 COPY node/ ./node/
-RUN cd node && go mod init node && go get github.com/gorilla/websocket && go build -o node-server main.go hub.go registry_client.go router.go ws_handler.go http_handler.go
+RUN cd node && go build -o node-server main.go
 
 FROM alpine:3.19
 WORKDIR /app

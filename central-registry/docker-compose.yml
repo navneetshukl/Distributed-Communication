@@ -18,6 +18,7 @@ services:
     environment:
       - NODE_ID=node-a
       - NODE_ADDR=http://node-a:3000
+      - CLIENT_ADDR=http://localhost:3001
       - REGISTRY_URL=http://registry:8080
       - PORT=3000
     ports:
@@ -35,6 +36,7 @@ services:
     environment:
       - NODE_ID=node-b
       - NODE_ADDR=http://node-b:3000
+      - CLIENT_ADDR=http://localhost:3002
       - REGISTRY_URL=http://registry:8080
       - PORT=3000
     ports:
