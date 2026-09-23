@@ -3,6 +3,7 @@ class ChatClient {
     constructor() {
         this.ws = null;
         this.username = '';
+        this.currentUserNodeInfo = null; // Store current user's node info
         this.currentRecipient = null;
         this.users = new Map(); // userId -> userInfo (node_id, client_address, etc.)
         this.reconnectAttempts = 0;
@@ -24,6 +25,7 @@ class ChatClient {
         this.loginBtn = document.getElementById('login-btn');
         this.userList = document.getElementById('user-list');
         this.chatHeader = document.getElementById('chat-header');
+        this.currentUserInfo = document.getElementById('current-user-info');
         this.messages = document.getElementById('messages');
         this.messageInput = document.getElementById('message-input');
         this.sendBtn = document.getElementById('send-btn');
@@ -66,6 +68,13 @@ class ChatClient {
             const data = await response.json();
             const nodeUrl = data.address.replace('http://', 'ws://').replace('https://', 'wss://');
             
+            // Store current user's node info
+            this.currentUserNodeInfo = {
+                node_id: data.node_id || 'Unknown',
+                address: data.address,
+                client_address: data.client_address || data.address
+            };
+            
             this.loginBtn.textContent = 'Connecting...';
             const wsUrl = `${nodeUrl}/ws?user=${encodeURIComponent(this.username)}`;
             this.ws = new WebSocket(wsUrl);
@@ -90,10 +99,24 @@ class ChatClient {
         this.messageInput.disabled = false;
         this.sendBtn.disabled = false;
         this.reconnectAttempts = 0;
+        // Display current user info
+        this.displayCurrentUserInfo();
         // Fetch online users after connecting
         this.fetchUsers();
         // Periodically refresh user list
         this.startUserRefreshInterval();
+    }
+
+    displayCurrentUserInfo() {
+        if (this.currentUserInfo && this.currentUserNodeInfo) {
+            this.currentUserInfo.innerHTML = `
+                <div class="current-user-name">${this.username}</div>
+                <div class="current-user-node">
+                    <span class="node-badge">${this.currentUserNodeInfo.node_id}</span>
+                    <span class="node-address">${this.currentUserNodeInfo.client_address}</span>
+                </div>
+            `;
+        }
     }
 
     startUserRefreshInterval() {
@@ -115,6 +138,11 @@ class ChatClient {
         this.setConnectionStatus(false);
         this.enableInput(false);
         this.stopUserRefreshInterval();
+        // Clear current user info
+        if (this.currentUserInfo) {
+            this.currentUserInfo.innerHTML = '';
+        }
+        this.currentUserNodeInfo = null;
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
