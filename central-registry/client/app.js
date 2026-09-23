@@ -123,7 +123,7 @@ class ChatClient {
         if (this.userRefreshInterval) {
             clearInterval(this.userRefreshInterval);
         }
-        this.userRefreshInterval = setInterval(() => this.fetchUsers(), 30000); // Every 30 seconds
+        this.userRefreshInterval = setInterval(() => this.fetchUsers(), 1000); // Every 30 seconds
     }
 
     stopUserRefreshInterval() {
@@ -267,8 +267,17 @@ class ChatClient {
     }
 
     displayMessage(msg) {
+
+        console.log("Display Message is ",msg)
+
         const isSent = msg.from === this.username;
         const isSystem = msg.from === 'system';
+
+        console.log("isSent ",isSent)
+        console.log("userName ",this.username)
+        console.log("From ",msg.from)
+        console.log("Current Receipient ",this.currentRecipient)
+        this.currentRecipient=msg.from
 
         // If message from another user not in list, add them
         if (msg.from !== this.username && msg.from !== this.currentRecipient) {
@@ -277,6 +286,7 @@ class ChatClient {
 
         // Display message if it's for the current conversation
         if (this.currentRecipient === msg.from || (isSent && this.currentRecipient === msg.to)) {
+            console.log("Inside the current receipient")
             this.addMessageToChat(msg, isSent, isSystem);
         } else if (!isSent) {
             // Notification for message from another user (could add badge later)

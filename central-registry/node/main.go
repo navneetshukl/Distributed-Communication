@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"central-registry/shared"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
@@ -60,7 +61,6 @@ func registerNode(regURL, nodeID, nodeAddr, clientAddr string) {
 	resp.Body.Close()
 }
 
-
 func handleWS(w http.ResponseWriter, r *http.Request) {
 	userID := r.URL.Query().Get("user")
 	if userID == "" {
@@ -91,6 +91,10 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			log.Printf("WebSocket read error for %s: %v", userID, err)
 			break
 		}
+
+		j, _ := json.Marshal(msg)
+		log.Println("Received Message is ", string(j))
+
 		handleMessage(userID, msg)
 	}
 
