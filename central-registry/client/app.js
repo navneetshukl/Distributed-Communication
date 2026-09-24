@@ -67,14 +67,14 @@ class ChatClient {
             }
             const data = await response.json();
             const nodeUrl = data.address.replace('http://', 'ws://').replace('https://', 'wss://');
-            
+
             // Store current user's node info
             this.currentUserNodeInfo = {
                 node_id: data.node_id || 'Unknown',
                 address: data.address,
                 client_address: data.client_address || data.address
             };
-            
+
             this.loginBtn.textContent = 'Connecting...';
             const wsUrl = `${nodeUrl}/ws?user=${encodeURIComponent(this.username)}`;
             this.ws = new WebSocket(wsUrl);
@@ -268,16 +268,21 @@ class ChatClient {
 
     displayMessage(msg) {
 
-        console.log("Display Message is ",msg)
+        console.log("Display Message is ", msg)
 
         const isSent = msg.from === this.username;
         const isSystem = msg.from === 'system';
 
-        console.log("isSent ",isSent)
-        console.log("userName ",this.username)
-        console.log("From ",msg.from)
-        console.log("Current Receipient ",this.currentRecipient)
-        this.currentRecipient=msg.from
+        console.log("isSent ", isSent)
+        console.log("userName ", this.username)
+        console.log("From ", msg.from)
+        console.log("Current Receipient ", this.currentRecipient)
+        this.currentRecipient = msg.from
+
+        this.setLocalStorage(this.username, {
+            from: msg.from,
+            chat: msg.content
+        })
 
         // If message from another user not in list, add them
         if (msg.from !== this.username && msg.from !== this.currentRecipient) {
@@ -295,6 +300,7 @@ class ChatClient {
     }
 
     addMessageToChat(msg, isSent, isSystem = false) {
+
         const div = document.createElement('div');
         if (isSystem) {
             div.className = 'message system';
@@ -361,6 +367,12 @@ class ChatClient {
         this.enableInput(true);
         this.messages.innerHTML = '';
 
+        // Load messages from localStorage for this conversation
+        const storedMessages = this.loadMessagesFromStorage(userId);
+        storedMessages.forEach(msg => {
+            this.addMessageToChat(msg, msg.isSent, false);
+        });
+
         document.querySelectorAll('.user-item').forEach(item => {
             item.classList.toggle('active', item.dataset.user === userId);
         });
@@ -375,6 +387,64 @@ class ChatClient {
         this.messageInput.disabled = !enabled;
         this.sendBtn.disabled = !enabled;
     }
+
+
+
+    getStorageKey(receipient) {
+        // Key format: chat_{currentUser}_{recipient} - ensures per-user, per-conversation storage
+        return `chat_${this.username}_${recipient}`;
+    }
+
+    saveMessageToStorage(receipient, message) {
+        if (!receipient || !this.username) return;
+
+        const key = this.getStorageKey(receipient)
+        const existing = this.getLocalStorage(key) || [];
+
+        // Add message with metadata
+
+        existing.push({
+            from: message.from,
+            content: message.content,
+            timestamp: message.timestamp || Date.now(),
+            isSent: message.from === this.username,
+            msgId: message.msg_id
+        });
+
+        // keep last 50 message
+        if (existing.length > 50) {
+            existing.splice(0, existing.length - 50)
+        }
+
+        this.setLocalStorage(key, existing);
+    }
+
+    loadMessagesFromStorage(recipient) {
+        if (!recipient || !this.username) return [];
+
+        const key = this.getStorageKey(recipient);
+        return this.getLocalStorage(key) || [];
+    }
+
+    clearMessagesFromStorage(recipient) {
+        if (!recipient || !this.username) return;
+        const key = this.getStorageKey(recipient);
+        localStorage.removeItem(key);
+    }
+
+    setLocalStorage(key, value) {
+        localStorage.setItem(key, JSON.stringify(value));
+    }
+
+    getLocalStorage(key) {
+        const value = localStorage.getItem(key);
+        return value ? JSON.parse(value) : null;
+    }
+
+
+
+
+
 }
 
 document.addEventListener('DOMContentLoaded', () => {
