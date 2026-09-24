@@ -277,12 +277,14 @@ class ChatClient {
         console.log("userName ", this.username)
         console.log("From ", msg.from)
         console.log("Current Receipient ", this.currentRecipient)
-        this.currentRecipient = msg.from
+        //this.currentRecipient = msg.from
 
-        this.setLocalStorage(this.username, {
-            from: msg.from,
-            chat: msg.content
-        })
+         // Save to localStorage for the conversation partner
+    // If we sent it, save under recipient; if received, save under sender
+    const conversationPartner = isSent ? msg.to : msg.from;
+    if (conversationPartner && conversationPartner !== 'system') {
+        this.saveMessageToStorage(conversationPartner, msg);
+    }
 
         // If message from another user not in list, add them
         if (msg.from !== this.username && msg.from !== this.currentRecipient) {
@@ -345,6 +347,10 @@ class ChatClient {
                 timestamp: Date.now()
             };
             this.addMessageToChat(optimisticMsg, true);
+
+            // save to local storage
+
+            this.saveMessageToStorage(this.currentRecipient,optimisticMsg)
             this.messageInput.value = '';
 
             // Store for potential acknowledgment handling
@@ -392,7 +398,7 @@ class ChatClient {
 
     getStorageKey(receipient) {
         // Key format: chat_{currentUser}_{recipient} - ensures per-user, per-conversation storage
-        return `chat_${this.username}_${recipient}`;
+        return `chat_${this.username}_${receipient}`;
     }
 
     saveMessageToStorage(receipient, message) {
